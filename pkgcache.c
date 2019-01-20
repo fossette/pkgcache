@@ -3,7 +3,7 @@
  * 
  * Author:  fossette
  * 
- * Date:    2019/01/15
+ * Date:    2019/01/19
  *
  * Version: 1.0
  * 
@@ -75,6 +75,7 @@
  *  Constants
  */
 
+#define ENVHTTPTIMEOUT              "HTTP_TIMEOUT"
 #define LNBLOCK                     2048
 
 #define PKGCACHE_DEFAULT_FILENAME   ".pkgcachelist"
@@ -88,14 +89,16 @@
 #define PKGCACHE_DEPS_DEFAULT       0b000000
 #define PKGCACHE_DEPS_QUOTE         0b000001
 
-#define PKGCACHE_HTML_DEFAULT       0b000000
-#define PKGCACHE_HTML_QUOTE         0b000001
-#define PKGCACHE_HTML_TAG           0b000010
-#define PKGCACHE_HTML_TAGQUOTE      0b000011
-#define PKGCACHE_HTML_HREF          0b000111
-#define PKGCACHE_HTML_ATAG          0b001010
-#define PKGCACHE_HTML_ATAGQUOTE     0b001011
-#define PKGCACHE_HTML_BEGINTAG      0b010010
+#define PKGCACHE_HTML_DEFAULT       0b0000000
+#define PKGCACHE_HTML_QUOTE         0b0000001
+#define PKGCACHE_HTML_TAG           0b0000010
+#define PKGCACHE_HTML_TAGQUOTE      0b0000011
+#define PKGCACHE_HTML_HREF          0b0000111
+#define PKGCACHE_HTML_ATAG          0b0001010
+#define PKGCACHE_HTML_ATAGQUOTE     0b0001011
+#define PKGCACHE_HTML_BEGINTAG      0b0010010
+#define PKGCACHE_HTML_CLOSETAG      0b0100010
+#define PKGCACHE_HTML_EOH           0b1000000
 
 #define LNPKGCACHE_DOWNLOAD_ALWAYS  3
 char *PKGCACHE_DOWNLOAD_ALWAYS[LNPKGCACHE_DOWNLOAD_ALWAYS]
@@ -136,10 +139,7 @@ GetDepsString(const la_ssize_t iCountR, char *pBlock,
             iOut++;
             pOut++;
             if (iOut >= LNSZ-1)
-            {
                iBool = 1;     // Too long!  Trunk and return it!
-               *piState = PKGCACHE_DEPS_DEFAULT;
-            }
          }
       }
       else if (*pIn == '"')
@@ -353,9 +353,6 @@ printf("DownloadFile: fetchGetURL(%s) OK\n", pUrl);
             if (iCountR)
             {
                iCountW = fwrite(block, 1, iCountR, pFileW);
-// #ifdef PKGCACHE_VERBOSE
-// printf("DownloadFile: iCountR=%ld, iCountW=%ld\n", iCountR, iCountW);
-// #endif
                if (iCountR != iCountW)
                   iErr = ERROR_PKGCACHE_FILE_W;
             }
@@ -416,7 +413,7 @@ GetHrefLink(const int iCountR, char *pBlock,
    pIn = pBlock + *piBlock;
    iOut = strlen(pszHref);
    pOut = pszHref + iOut;
-   while (*piBlock < iCountR && !iBool)
+   while (*piBlock < iCountR && !iBool && *piState != PKGCACHE_HTML_EOH)
    {
       // Handeling quoted text
       if (*piState & PKGCACHE_HTML_QUOTE)
@@ -455,7 +452,16 @@ GetHrefLink(const int iCountR, char *pBlock,
       {
          if (*pIn == '>')  // This is the end-tag
          {
-            *piState = PKGCACHE_HTML_DEFAULT;
+            if (*piState == PKGCACHE_HTML_CLOSETAG)
+            {
+               *pOut = 0;
+               if (strcasecmp(pszHref, "/html"))
+                  *piState = PKGCACHE_HTML_DEFAULT;
+               else
+                  *piState = PKGCACHE_HTML_EOH;
+            }
+            else
+               *piState = PKGCACHE_HTML_DEFAULT;
          }
          else if (*piState == PKGCACHE_HTML_BEGINTAG)
          {
@@ -474,6 +480,14 @@ GetHrefLink(const int iCountR, char *pBlock,
             else if (*pIn == '"')
             {
                *piState = PKGCACHE_HTML_TAGQUOTE;
+            }
+            else if (*pIn == '/')
+            {
+               pOut = pszHref;
+               *pOut = '/';
+               pOut++;
+               iOut = 1;
+               *piState = PKGCACHE_HTML_CLOSETAG;
             }
             else
             {
@@ -511,6 +525,12 @@ GetHrefLink(const int iCountR, char *pBlock,
                iOut++;
                pOut++;
             }
+         }
+         else if (*piState == PKGCACHE_HTML_CLOSETAG)
+         {
+            *pOut = *pIn;
+            iOut++;
+            pOut++;
          }
       }
 
@@ -571,28 +591,82 @@ IsDownloadAlways(const char *szFilename)
 int
 DownloadUpdates(const char *pUrl, const char *pPkgcachePathname)
 {
-   int      iBlock = 0,
+   int      i,
+            iBlock = 0,
             iErr = 0,
             iHrefLn,
             iState = PKGCACHE_HTML_DEFAULT;
    char     block[LNBLOCK];
-   size_t   iCountR;
-   FILE     *pFile;
+   size_t   iCountR,
+            iCountW;
+   FILE     *pFileR,
+            *pFileW = NULL;
    FILENAME szHref,
             szPkgcachePathname2,
+            szTempname,
             szUrl2;
 
 
-   pFile = fetchGetURL(pUrl, "");
-   if (pFile)
+   // Since the docs say that fetch is not reentrant,
+   // no choice but to read the web page twice.
+   iErr = MakePath(pPkgcachePathname);
+   if (!iErr)
+   {
+      strcpy(szTempname, pPkgcachePathname);
+      i = strlen(szTempname);
+      if (szTempname[i - 1] != '/')
+      {
+         szTempname[i] = '/';
+         i++;
+         szTempname[i] = 0;
+      }
+      strcpy(szTempname + i, PKGCACHE_TEMP_FILENAME);
+
+      pFileW = fopen(szTempname, "w");
+      if (!pFileW)
+         iErr = ERROR_PKGCACHE_ACCESS;
+   }
+   if (!iErr)
+   {
+      pFileR = fetchGetURL(pUrl, "");
+      if (!pFileR)
+         iErr = ERROR_PKGCACHE_ACCESS;
+   }
+   if (!iErr)
    {
 #ifdef PKGCACHE_VERBOSE
 printf("DownloadUpdates: fetchGetURL(%s) OK\n", pUrl);
 #endif
+      do
+      {
+         iCountR = fread(block, 1, LNBLOCK, pFileR);
+         if (iCountR)
+         {
+            iCountW = fwrite(block, 1, iCountR, pFileW);
+            if (iCountR != iCountW)
+               iErr = ERROR_PKGCACHE_FILE_W;
+         }
+      }
+      while (iCountR == LNBLOCK && !iErr) ;
+
+      fclose(pFileR);
+   }
+   if (pFileW)
+      fclose(pFileW);
+   
+   // Second read...
+   if (!iErr)
+   {
+      pFileR = fopen(szTempname, "r");
+      if (!pFileR)
+         iErr = ERROR_PKGCACHE_ACCESS;
+   }
+   if (!iErr)
+   {
       szHref[0] = 0;
       do
       {
-         iCountR = fread(block, 1, LNBLOCK, pFile);
+         iCountR = fread(block, 1, LNBLOCK, pFileR);
          do
          {
             if (GetHrefLink(iCountR, block,     &iBlock, &iState, szHref))
@@ -635,13 +709,20 @@ printf("DownloadUpdates: fetchGetURL(%s) OK\n", pUrl);
                }
             }
          }
-         while (iBlock && !iErr) ;
+         while (iBlock && !iErr && iState != PKGCACHE_HTML_EOH) ;
       }
-      while (iCountR == LNBLOCK && !iErr) ;
+      while (iCountR == LNBLOCK && !iErr && iState != PKGCACHE_HTML_EOH) ;
 
-      fclose(pFile);
+      fclose(pFileR);
+
+      if (iState != PKGCACHE_HTML_EOH)
+      {
+         printf("ERROR: %s didn't load completely.\n", pUrl);
+         iErr = ERROR_PKGCACHE_NO_EOH;
+      }
    }
 
+   remove(szTempname);
    return(iErr);
 }
 
@@ -673,6 +754,12 @@ main(int argc, char** argv)
             "-------------\n"
             "  https://github.com/fossette/pkgcache/wiki\n\n");
    
+   // Make sure HTTP_TIMEOUT has some decent value.
+   p = getenv(ENVHTTPTIMEOUT);
+   if (p)
+      if (atoi(p) < 2)
+         setenv(ENVHTTPTIMEOUT, "180", 1);   // 3 minutes timeout.
+
    // Generate the default pkg cache pathname
    p = getcwd(szPkgcachePathname, LNFILENAME-20);
    szPkgcachePathname[LNFILENAME-20] = 0;
@@ -693,24 +780,46 @@ main(int argc, char** argv)
       strcpy(szPkglistFilename + i, PKGCACHE_DEFAULT_FILENAME);
 
       // Option parsing
-      if (argc == 2 || argc == 3)
+      if (argc >= 2 && argc <= 6)
       {
+         i = 1;
+
+         // Option: Set HTTP_TIMEOUT
+         if (*(argv[i]) == '-' && argc >= 4)
+         {
+            if (CompareCommand("TIMEOUT", (argv[i])+1)
+                && atoi(argv[i+1]) > 1)
+            {
+               setenv(ENVHTTPTIMEOUT, argv[i+1], 1);
+               i++;
+            }            
+            i++;
+         }
+         
          // Extract the tool's command
-         if (CompareCommand("ADD", argv[1]))
-            iCommand = PKGCACHE_ADD;
-         else if (CompareCommand("CREATE", argv[1]))
-            iCommand = PKGCACHE_CREATE;
-         else if (CompareCommand("DOWNLOAD", argv[1]))
-            iCommand = PKGCACHE_DOWNLOAD;
-         else if (CompareCommand("HELP", argv[1]))
-            iCommand = PKGCACHE_HELP;
+         if (i < argc)
+         {
+            if (CompareCommand("ADD", argv[i]))
+               iCommand = PKGCACHE_ADD;
+            else if (CompareCommand("CREATE", argv[i]))
+               iCommand = PKGCACHE_CREATE;
+            else if (CompareCommand("DOWNLOAD", argv[i]))
+               iCommand = PKGCACHE_DOWNLOAD;
+            else if (CompareCommand("HELP", argv[i]))
+               iCommand = PKGCACHE_HELP;
+            else
+               iErr = ERROR_PKGCACHE_CMD;
+
+            i++;
+         }
          else
             iErr = ERROR_PKGCACHE_CMD;
 
          // Extract optional path
-         if (!iErr && argc == 3)
+         if (!iErr && i < argc)
          {
-            StrnCopy(szTempName, argv[2], LNFILENAME);
+            StrnCopy(szTempName, argv[i], LNFILENAME);
+
             i = strlen(szTempName);
             if (i == LNFILENAME-1)
                iErr = ERROR_PKGCACHE_MEM;
@@ -826,6 +935,24 @@ main(int argc, char** argv)
                {
                   i = iNew;
                   iErr = DownloadUpdates(szPkgRepoUrl, szPkgcachePathname);
+                  if (iErr == ERROR_PKGCACHE_NO_EOH)
+                  {
+                     p = getenv(ENVHTTPTIMEOUT);
+                     if (p)
+                     {
+                        if (atoi(p) > 1)
+                           printf("HTTP Fetch Timeout: %s sec., ", p);
+                        else
+                           printf("No HTTP Fetch Timeout specified! ");
+                     }
+                     printf("Retry? ([CR]=Yes) ");
+                     gets_s(sz, LNSZ);
+                     if (!(*sz) || *sz=='y' || *sz=='Y')
+                     {
+                        i--;
+                        iErr = 0;
+                     }
+                  }
                   iNew = ListGetStatNew();
                }
                while (iNew != i && !iErr) ;
@@ -882,12 +1009,13 @@ main(int argc, char** argv)
          break;
    }
    if (iErr == ERROR_PKGCACHE_CMD || iCommand == PKGCACHE_HELP)
-      printf("USAGE: pkgcache <command> [package-list-filename]\n"
+      printf("USAGE: pkgcache [-timeout <sec.>] <command> [package-list-filename]\n"
              "  where COMMAND is:\n"
              "    add      : Interactively add packages to the package list.\n"
              "    create   : Create the package list using 'pkg info'.\n"
              "    download : Download relevant packages via Internet.\n"
-             "    help     : Display this command syntax page.\n\n");
+             "    help     : Display this command syntax page.\n"
+             "  Note that the first letter of options and commands is accepted.\n\n");
    
    return(iErr ? EXIT_FAILURE : EXIT_SUCCESS);
 }
