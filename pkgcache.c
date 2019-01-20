@@ -100,9 +100,9 @@
 #define PKGCACHE_HTML_CLOSETAG      0b0100010
 #define PKGCACHE_HTML_EOH           0b1000000
 
-#define LNPKGCACHE_DOWNLOAD_ALWAYS  3
+#define LNPKGCACHE_DOWNLOAD_ALWAYS  6
 char *PKGCACHE_DOWNLOAD_ALWAYS[LNPKGCACHE_DOWNLOAD_ALWAYS]
-   = {"digests.txz", "meta.txz", "packagesite.txz"};
+   = {"digests.txz", "meta.txz", "packagesite.txz", "pkg-devel.txz", "pkg.txz", "pkg.txz.sig"};
 
 
 /*
@@ -630,7 +630,7 @@ DownloadUpdates(const char *pUrl, const char *pPkgcachePathname)
    {
       pFileR = fetchGetURL(pUrl, "");
       if (!pFileR)
-         iErr = ERROR_PKGCACHE_ACCESS;
+         iErr = ERROR_PKGCACHE_REPO;
    }
    if (!iErr)
    {
@@ -715,7 +715,7 @@ printf("DownloadUpdates: fetchGetURL(%s) OK\n", pUrl);
 
       fclose(pFileR);
 
-      if (iState != PKGCACHE_HTML_EOH)
+      if (!iErr && iState != PKGCACHE_HTML_EOH)
       {
          printf("ERROR: %s didn't load completely.\n", pUrl);
          iErr = ERROR_PKGCACHE_NO_EOH;
@@ -1019,4 +1019,5 @@ main(int argc, char** argv)
    
    return(iErr ? EXIT_FAILURE : EXIT_SUCCESS);
 }
+
 
