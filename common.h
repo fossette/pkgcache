@@ -3,7 +3,7 @@
  * 
  * Author:  fossette
  * 
- * Date:    2019/01/15
+ * Date:    2019/01/19
  *
  * Version: 1.0
  * 
@@ -47,7 +47,8 @@
 #define ERROR_PKGCACHE_FILE_W    4
 #define ERROR_PKGCACHE_INFO      5
 #define ERROR_PKGCACHE_MEM       6
-#define ERROR_PKGCACHE_REPO      7
+#define ERROR_PKGCACHE_NO_EOH    7
+#define ERROR_PKGCACHE_REPO      8
 
 // Comment out PKGCACHE_VERBOSE to remove debug printf
 // #define PKGCACHE_VERBOSE         1
