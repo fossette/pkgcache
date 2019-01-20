@@ -3,7 +3,7 @@ Tool to create a custom FreeBSD Package Repository for OFFLINE USE.
 
 ## Purpose
 
-Any Operating Systems (OS) nowadays are plagued by numerous issues that must be addressed.  The way this is achieved is by regular updates downloaded over the Internet.  The problem is that the turnaround is so fast that the testing phase is often shortened, bugs slip through, and the system breaks.  This is very frustrating for users that need their system.  Some OSs are worst than others, but unfortunately, FreeBSD is no exception.  Also, downloads can easily be more than 2 GB.  For users having a limited monthly bandwidth, at a cost of $20/GB for example, upgrades become very expansive.  This is especially frustrating when the upgrades are unavoidable and/or are of no use for a specific user.
+Any Operating Systems (OS) nowadays are plagued by numerous issues that must be addressed.  The way this is achieved is by regular updates downloaded over the Internet.  The problem is that the turnaround is so fast that the testing phase is often shortened, bugs slip through, and the system breaks.  This is very frustrating for users that need their system.  Some OSs are worst than others, but unfortunately, FreeBSD is no exception.  Also, downloads can easily be more than 2 GB.  For users having a limited monthly bandwidth, at a cost of $20/GB for example, upgrades become very expensive.  This is especially frustrating when the upgrades are unavoidable and/or are of no use for a specific user.
 
 ## Solution
 
