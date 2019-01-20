@@ -34,7 +34,7 @@ pkgcache a < <filename>
 Note that package dependencies will automatically be added to the package list, so that's one less thing to worry about.
 
 ### Step 4
-Set the URL of the official FreeBSD repository to use in the repository list file.  The repository list file format is very simple.  The first line is the official FreeBSD repository to use.  For example, `http://pkg.freebsd.org/FreeBSD:11:amd64/`  The following lines are the packages name you are interested in (no version number), one per line.
+Set the URL of the official FreeBSD repository to use in the repository list file.  The repository list file format is very simple.  The first line is the official FreeBSD repository to use.  For example, `http://pkg.freebsd.org/FreeBSD:11:amd64/latest/`  The following lines are the packages name you are interested in (no version number), one per line.
 
 ### Step 5
 Get the download going with the DOWNLOAD command.  For example,
