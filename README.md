@@ -34,7 +34,7 @@ pkgcache a < <filename>
 Note that package dependencies will automatically be added to the package list, so that's one less thing to worry about.
 
 ### Step 4
-Set the URL of the official FreeBSD repository to use in the repository list file.  The repository list file format is very simple.  The first line is the official FreeBSD repository to use.  For example, `http://pkg.freebsd.org/FreeBSD:11:amd64/latest/`  The following lines are the packages name you are interested in (no version number), one per line.
+Set the URL of the official FreeBSD repository to use in the repository list file.  The repository list file format is very simple.  The first line is the official FreeBSD repository to use.  For example, `http://pkg.freebsd.org/FreeBSD:11:amd64/latest/`  Two filter expressions can be added folowing the URL on the same line, `[nav-filter [path-filter]]`.  `[nav-filter]` could be `:11:|:12:` to disregard any other version.  `[path-filter]` could be `latest` to disregard any other releases.  Filter operators are `(` `)` `!` `&` `|`.  The following lines are the packages name you are interested in (no version number), one per line.
 
 ### Step 5
 Get the download going with the DOWNLOAD command.  For example,
@@ -57,6 +57,7 @@ There are several branches based on the moment in time for you to choose from.  
 
 ## Version history
 1.0 - 2019/01/20 - Initial release
+1.1 - 2019/02/04 - Bug fixes, plus a filter feature for the FreeBSD Repository selection
 
 ## Compatibility
 **pkgcache** has been developed and tested under FreeBSD 11.2.  It should be compatible with other versions because only standard
