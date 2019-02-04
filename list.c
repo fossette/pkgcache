@@ -3,9 +3,9 @@
  * 
  * Author:  fossette
  * 
- * Date:    2019/01/15
+ * Date:    2019/02/04
  *
- * Version: 1.0
+ * Version: 1.1
  * 
  * Descr:   Package list object. Tested under FreeBSD 11.2.
  *
@@ -63,7 +63,9 @@ int      giGet = -1,
          giPkgnameListNextAdd = 0,
          giStatExisting = 0,
          giStatNew = 0;
-char     gszPkgRepoUrl[LNFILENAME] = "";
+char     gszPkgRepoFilterNav[LNFILENAME] = "",
+         gszPkgRepoFilterPath[LNFILENAME] = "",
+         gszPkgRepoUrl[LNFILENAME] = "";
 PKGNAME  *gpPkgnameList = NULL;
 
 
@@ -288,6 +290,30 @@ ListGetFirst(     char *szPkgName)
 
 
 /*
+ *  ListGetNavFilter
+ */
+
+
+void
+ListGetNavFilter(     char *pNavFilter)
+{
+   strcpy(pNavFilter, gszPkgRepoFilterNav);
+}
+
+
+/*
+ *  ListGetPathFilter
+ */
+
+
+void
+ListGetPathFilter(     char *pPathFilter)
+{
+   strcpy(pPathFilter, gszPkgRepoFilterPath);
+}
+
+
+/*
  *  ListGetRepoUrl
  */
 
@@ -367,6 +393,8 @@ int
 ListLoad(char *szFilename)
 {
    int      i,
+            j,
+            k,
             iErr = 0;
    char     sz[LNSZ],
             szUrl[LNFILENAME],
@@ -390,6 +418,42 @@ ListLoad(char *szFilename)
                i--;
                szUrl[i] = 0;
             }
+
+            // Check for the optional nav and path filters following the URL
+            j = 0;
+            k = i;
+            while (j < k && !isspace(szUrl[j]))
+               j++;
+            if (j < k)
+            {
+               // The nav filter is found, isolate it!
+               szUrl[j] = 0;
+               i = j;
+               j++;
+
+               while (j < k && isspace(szUrl[j]))
+                  j++;
+               if (j < k)
+               {
+                  strcpy(gszPkgRepoFilterNav, szUrl + j);
+                  j = 0;
+                  k = strlen(gszPkgRepoFilterNav);
+
+                  while (j < k && !isspace(gszPkgRepoFilterNav[j]))
+                     j++;
+                  if (j < k)
+                  {
+                     // The path filter is found, isolate it!
+                     gszPkgRepoFilterNav[j] = 0;
+                     j++;
+                     while (j < k && isspace(gszPkgRepoFilterNav[j]))
+                        j++;
+                     if (j < k)
+                        strcpy(gszPkgRepoFilterPath, gszPkgRepoFilterNav + j);
+                  }
+               }
+            }
+
             if (szUrl[i-1] != '/')
             {
                szUrl[i] = '/';
@@ -452,6 +516,7 @@ ListSave(char *szFilename)
    int      i,
             iEof,
             iErr = 0;
+   char     sz[LNFILENAME];
    FILE     *pFile;
    PKGNAME  *p;
 
@@ -459,7 +524,17 @@ ListSave(char *szFilename)
    pFile = fopen(szFilename, "w");
    if (pFile)
    {
-      iEof = fputs(gszPkgRepoUrl, pFile);
+      if (strlen(gszPkgRepoFilterNav))
+      {
+         if (strlen(gszPkgRepoFilterPath))
+            sprintf(sz, "%s %s %s", gszPkgRepoUrl, gszPkgRepoFilterNav,
+                    gszPkgRepoFilterPath);
+         else
+            sprintf(sz, "%s %s", gszPkgRepoUrl, gszPkgRepoFilterNav);
+      }
+      else
+         strcpy(sz, gszPkgRepoUrl);
+      iEof = fputs(sz, pFile);
       if (iEof >= 0)
          iEof = fputs("\n", pFile);
 

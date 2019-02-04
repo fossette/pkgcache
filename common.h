@@ -3,9 +3,9 @@
  * 
  * Author:  fossette
  * 
- * Date:    2019/01/19
+ * Date:    2019/02/04
  *
- * Version: 1.0
+ * Version: 1.1
  * 
  * Descr:   Common header file. Tested under FreeBSD 11.2.
  *
@@ -49,8 +49,9 @@
 #define ERROR_PKGCACHE_MEM       6
 #define ERROR_PKGCACHE_NO_EOH    7
 #define ERROR_PKGCACHE_REPO      8
+#define ERROR_PKGCACHE_TEMP      9
 
-// Comment out PKGCACHE_VERBOSE to remove debug printf
+// Remove comment to PKGCACHE_VERBOSE to have verbose debug output
 // #define PKGCACHE_VERBOSE         1
 
 
@@ -68,6 +69,7 @@ typedef char FILENAME[LNFILENAME];
 int  Exist(const char *szPathname, const int iPathType);
 int  MakePath(const char *szPathname);
 void StrnCopy(char *dst, const char *src, const int l);
+void StrReplace(char *dst, const char *before, const char after);
 
 
 #endif  // PKGCACHE_COMMON_H

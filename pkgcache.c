@@ -3,9 +3,9 @@
  * 
  * Author:  fossette
  * 
- * Date:    2019/01/19
+ * Date:    2019/02/04
  *
- * Version: 1.0
+ * Version: 1.1
  * 
  * Descr:   FreeBSD 'pkg' cache implementation to facilitate easy offline
  *          packages installation. Tested under FreeBSD 11.2.
@@ -30,8 +30,11 @@
  *
  *          The package list file, '.pkgcache' by default, is a simple
  *          text file where the first line contains the URL of a FreeBSD
- *          package repository.  The next lines contain the package's
- *          base name, i.e. without the version number.
+ *          package repository.  Optional, a path filter may be specified
+ *          after the URL (and a space).  Special characters for the
+ *          filter are '(', ')', '!', '&', '|' used as logic operators.
+ *          The next lines contain the package's base name, i.e. without
+ *          the version number.
  *
  *          This program uses the specified or current directory to
  *          hold temporary files.
@@ -181,19 +184,37 @@ CheckDependancies(const char *pFilename)
    la_ssize_t  iCountR;
    char        block[LNBLOCK],
                szDeps[LNSZ];
-   struct archive *pArc;
-   struct archive_entry *pArcEntry;
+   struct archive *pArc = NULL;
+   struct archive_entry *pArcEntry = NULL;
 
 
-   pArc = archive_read_new();
-   pArcEntry = archive_entry_new();
-   if (pArc && pArcEntry)
+   // Patch to only check TXZ files
+   iBlock = strlen(pFilename);
+   if (iBlock > 4)
+   {
+      if (strcasecmp(pFilename + iBlock - 4, ".txz"))
+         iErr = ERROR_PKGCACHE_TEMP;
+   }
+   else
+      iErr = ERROR_PKGCACHE_TEMP;
+   
+   if (!iErr)
+   {
+      pArc = archive_read_new();
+      pArcEntry = archive_entry_new();
+      if (!(pArc && pArcEntry))
+         iErr = ERROR_PKGCACHE_MEM;
+   }
+   if (!iErr)
    {
       iErr = archive_read_support_filter_all(pArc);
       if (!iErr)
          iErr = archive_read_support_format_all(pArc);
       if (!iErr)
          iErr = archive_read_open_filename(pArc, pFilename, LNBLOCK);
+   }
+   if (!iErr)
+   {
       do
       {
          iErr = archive_read_next_header2(pArc,     pArcEntry);
@@ -270,6 +291,7 @@ printf("CheckDependancies(%s): GetDepsString=%s\n", pFilename, szDeps);
          }
       }
       while (!iErr) ;
+
       if (iErr == ARCHIVE_EOF)
          iErr = 0;
    }
@@ -279,6 +301,10 @@ printf("CheckDependancies(%s): GetDepsString=%s\n", pFilename, szDeps);
    if (pArc)      
       archive_read_free(pArc);
 
+   // Carry on to the next task if an error occured in the archive
+   if (iErr == ERROR_PKGCACHE_TEMP || iErr < 0)
+      iErr = 0;
+   
    return(iErr);
 }
 
@@ -321,7 +347,8 @@ CompareCommand(const char *szCmd, const char *sz)
 int
 DownloadFile(const char *pUrl, const char *pFilename)
 {
-   int      iErr = 0;
+   int      iEmpty = 1,
+            iErr = 0;
    char     block[LNBLOCK];
    size_t   iCountR,
             iCountW;
@@ -329,59 +356,65 @@ DownloadFile(const char *pUrl, const char *pFilename)
             *pFileW;
 
 
-   if (!Exist(pFilename, PKGCACHE_EXIST_FILE))
+   // Always download archives because they often change
+   // while still keeping the same file name and version.
+
+   pFileW = fopen(pFilename, "w");
+   if (pFileW)
    {
-      pFileW = fopen(pFilename, "w");
-      if (pFileW)
-      {
 #ifdef PKGCACHE_VERBOSE
 printf("DownloadFile: fopen(%s) OK\n", pFilename);
 #endif
-         pFileR = fetchGetURL(pUrl, "");
-      }
-      else
-         pFileR = NULL;
+      pFileR = fetchGetURL(pUrl, "");
+   }
+   else
+      pFileR = NULL;
 
-      if (pFileR)
-      {
+   if (pFileR)
+   {
 #ifdef PKGCACHE_VERBOSE
 printf("DownloadFile: fetchGetURL(%s) OK\n", pUrl);
 #endif
-         do
+      do
+      {
+         iCountR = fread(block, 1, LNBLOCK, pFileR);
+         if (iCountR)
          {
-            iCountR = fread(block, 1, LNBLOCK, pFileR);
-            if (iCountR)
-            {
-               iCountW = fwrite(block, 1, iCountR, pFileW);
-               if (iCountR != iCountW)
-                  iErr = ERROR_PKGCACHE_FILE_W;
-            }
-         }
-         while (iCountR == LNBLOCK && !iErr) ;
-
-         // Check for a successful download
-         if (iCountR < LNBLOCK && !iErr)
-         {
-            if (!feof(pFileR) || ferror(pFileR))
-               iErr = ERROR_PKGCACHE_FILE_R;
+            iEmpty = 0;
+            iCountW = fwrite(block, 1, iCountR, pFileW);
+            if (iCountR != iCountW)
+               iErr = ERROR_PKGCACHE_FILE_W;
          }
       }
+      while (iCountR == LNBLOCK && !iErr) ;
 
-      if (pFileR)
-         fclose(pFileR);
-      if (pFileW)
-         fclose(pFileW);
-      else
+      // Check for a successful download
+      if (iCountR < LNBLOCK && !iErr)
       {
+         if (!feof(pFileR) || ferror(pFileR))
+            iErr = ERROR_PKGCACHE_FILE_R;
+      }
+   }
+
+   if (pFileR)
+      fclose(pFileR);
+   if (pFileW)
+      fclose(pFileW);
 #ifdef PKGCACHE_VERBOSE
+   else
+   {
 printf("DownloadFile: fopen(%s) errno=%d\n", pFilename, errno);
+   }
 #endif
-      }
-      if (iErr)
+
+   if (iErr || iEmpty)
+   {
+      // Cleanup if incomplete or no download, but make sure it's a file.
+      if (Exist(pFilename, PKGCACHE_EXIST_FILE))
       {
-         // Cleanup if incomplete download, but make sure it's a file.
-         if (Exist(pFilename, PKGCACHE_EXIST_FILE))
-            remove(pFilename);
+         remove(pFilename);
+         if (!iErr)
+            printf("  Warning: %s missing!\n", pUrl);
       }
    }
 
@@ -565,18 +598,156 @@ GetHrefLink(const int iCountR, char *pBlock,
  */
 
 int
-IsDownloadAlways(const char *szFilename)
+IsDownloadAlways(const char *pFilename)
 {
-   int   i =      LNPKGCACHE_DOWNLOAD_ALWAYS,
-         iBool =  0;
+   int   i = LNPKGCACHE_DOWNLOAD_ALWAYS,
+         iBool;
 
 
    do
    {
       i--;
-      iBool = !strcasecmp(szFilename, PKGCACHE_DOWNLOAD_ALWAYS[i]);
+      iBool = !strcmp(pFilename, PKGCACHE_DOWNLOAD_ALWAYS[i]);
    }
    while (i && !iBool) ;
+
+   return(iBool);
+}
+
+
+/*
+ *  IsFilterMatchInt
+ *
+ *  Return: TRUE if match.
+ */
+
+int
+IsFilterMatchInt(const char *pUrl, const char *pFilter,     int *pI)
+{
+   int      i,
+            iBool = 0,
+            iBool2;
+   FILENAME sz;
+
+
+#ifdef PKGCACHE_VERBOSE
+printf("--> (%s %s %d)\n", pUrl, pFilter, *pI);
+#endif
+   if (!(pFilter[*pI]) || pFilter[*pI] == ')' || pFilter[*pI] == '&'
+       || pFilter[*pI] == '|')
+   {
+      // Error: Invalid expression
+      (*pI) = strlen(pFilter);
+   }
+   else if (pFilter[*pI] == '!')
+   {
+      // '!' operator handler (lower priority than '&' and '|')
+      (*pI)++;
+
+      i = 0;
+      iBool = !IsFilterMatchInt(pUrl, pFilter + (*pI),     &i);
+      (*pI) += i;
+   }
+   else if (pFilter[*pI] == '(')
+   {
+      // '( )' operator handler
+      (*pI)++;
+
+      i = 0;
+      iBool = IsFilterMatchInt(pUrl, pFilter + (*pI),     &i);
+      (*pI) += i;
+      if (pFilter[*pI] == ')')
+      {
+         (*pI)++;
+
+         if (pFilter[*pI] == '&')
+         {
+            (*pI)++;
+
+            i = 0;
+            iBool2 = IsFilterMatchInt(pUrl, pFilter + (*pI),     &i);
+            iBool = iBool && iBool2;
+            (*pI) += i;
+         }
+         else if (pFilter[*pI] == '|')
+         {
+            (*pI)++;
+
+            i = 0;
+            iBool2 = IsFilterMatchInt(pUrl, pFilter + (*pI),     &i);
+            iBool = iBool || iBool2;
+            (*pI) += i;
+         }
+      }
+      else
+      {
+         // Error: Invalid expression
+         (*pI) = strlen(pFilter);
+      }
+   }
+   else
+   {
+      // String filter handler
+      i = 0;
+      while (pFilter[*pI] && pFilter[*pI] != '(' && pFilter[*pI] != ')'
+             && pFilter[*pI] != '!' && pFilter[*pI] != '&' && pFilter[*pI] != '|')
+      {
+         sz[i] = pFilter[*pI];
+         i++;
+         (*pI)++;
+      }
+      sz[i] = 0;
+      if (i)
+      {
+         iBool = strstr(pUrl, sz) != NULL;
+
+         if (pFilter[*pI] == '&')
+         {
+            (*pI)++;
+
+            i = 0;
+            iBool2 = IsFilterMatchInt(pUrl, pFilter + (*pI),     &i);
+            iBool = iBool && iBool2;
+            (*pI) += i;
+         }
+         else if (pFilter[*pI] == '|')
+         {
+            (*pI)++;
+
+            i = 0;
+            iBool2 = IsFilterMatchInt(pUrl, pFilter + (*pI),     &i);
+            iBool = iBool || iBool2;
+            (*pI) += i;
+         }
+      }
+   }
+#ifdef PKGCACHE_VERBOSE
+printf("<-- (%d) %d\n", *pI, iBool);
+#endif
+
+   return(iBool);
+}
+
+
+/*
+ *  IsFilterMatch
+ *
+ *  Return: TRUE if match.
+ */
+
+int
+IsFilterMatch(const char *pUrl, const char *pFilter)
+{
+   int   i = 0,
+         iBool = 1;
+
+
+   if (strlen(pFilter))
+   {
+      iBool = IsFilterMatchInt(pUrl, pFilter,     &i);
+      if (iBool)
+         iBool = !(pFilter[i]);
+   }
 
    return(iBool);
 }
@@ -589,7 +760,8 @@ IsDownloadAlways(const char *szFilename)
  */
 
 int
-DownloadUpdates(const char *pUrl, const char *pPkgcachePathname)
+DownloadUpdates(const char *pUrl, const char *pNavFilter,
+                const char *pPathFilter, const char *pPkgcachePathname)
 {
    int      i,
             iBlock = 0,
@@ -630,13 +802,11 @@ DownloadUpdates(const char *pUrl, const char *pPkgcachePathname)
    {
       pFileR = fetchGetURL(pUrl, "");
       if (!pFileR)
-         iErr = ERROR_PKGCACHE_REPO;
+         iErr = ERROR_PKGCACHE_TEMP;
    }
    if (!iErr)
    {
-#ifdef PKGCACHE_VERBOSE
-printf("DownloadUpdates: fetchGetURL(%s) OK\n", pUrl);
-#endif
+      printf("Browsing %s\n", pUrl);
       do
       {
          iCountR = fread(block, 1, LNBLOCK, pFileR);
@@ -675,19 +845,29 @@ printf("DownloadUpdates: fetchGetURL(%s) OK\n", pUrl);
                if (iHrefLn)
                {
                   if (szHref[0] != '/' && strncasecmp(szHref, "http:", 5)
-                      && strncasecmp(szHref, "https:", 6)
-                      && szHref[0] != '.')  // Skip absolute and navigation links
+                      && strncasecmp(szHref, "https:", 6) && szHref[0] != '.'
+                      && szHref[0] != '?')  // Skip absolute and navigation links
                   {
+                     // Patch because of non desirable HTML directory format
+                     if (strstr(szHref, "FreeBSD%3A") && szHref[iHrefLn-1] != '/')
+                     {
+                        StrReplace(szHref, "%3A", ':');
+                        strcat(szHref, "/");
+                        iHrefLn = strlen(szHref);
+                     }
                      sprintf(szUrl2, "%s%s", pUrl, szHref);
                      sprintf(szPkgcachePathname2, "%s%s", pPkgcachePathname,
                              szHref);
                      if (szHref[iHrefLn-1] == '/')
-                        iErr = DownloadUpdates(szUrl2, szPkgcachePathname2);
+                     {
+                        if (IsFilterMatch(szUrl2, pNavFilter))
+                           iErr = DownloadUpdates(szUrl2, pNavFilter,
+                                                  pPathFilter, szPkgcachePathname2);
+                     }
                      else
                      {
-                        if (IsDownloadAlways(szHref)
-                            || (ListIsFound(szHref)
-                                && !Exist(szPkgcachePathname2, PKGCACHE_EXIST_FILE)) )
+                        if ((IsDownloadAlways(szHref) || ListIsFound(szHref))
+                            && IsFilterMatch(szUrl2, pPathFilter))
                         {
                            printf("Downloading %s\n", szHref);
                            iErr = MakePath(pPkgcachePathname);
@@ -722,6 +902,8 @@ printf("DownloadUpdates: fetchGetURL(%s) OK\n", pUrl);
       }
    }
 
+   if (iErr == ERROR_PKGCACHE_TEMP)
+      iErr = 0;
    remove(szTempname);
    return(iErr);
 }
@@ -743,6 +925,8 @@ main(int argc, char** argv)
    FILE           *pFile;
    FILENAME       szPkgcachePathname,
                   szPkglistFilename,
+                  szPkgNavFilter,
+                  szPkgPathFilter,
                   szPkgRepoUrl,
                   szResultsFilename,
                   szTempName;
@@ -750,7 +934,7 @@ main(int argc, char** argv)
 
 
    // Initialisation
-   printf("\npkgcache v1.0\n"
+   printf("\npkgcache v1.1\n"
             "-------------\n"
             "  https://github.com/fossette/pkgcache/wiki\n\n");
    
@@ -928,13 +1112,16 @@ main(int argc, char** argv)
 
          case PKGCACHE_DOWNLOAD:
             ListGetRepoUrl(     szPkgRepoUrl);
+            ListGetNavFilter(     szPkgNavFilter);
+            ListGetPathFilter(     szPkgPathFilter);
             if (*szPkgRepoUrl)
             {
                iNew = ListGetStatNew();
                do
                {
                   i = iNew;
-                  iErr = DownloadUpdates(szPkgRepoUrl, szPkgcachePathname);
+                  iErr = DownloadUpdates(szPkgRepoUrl, szPkgNavFilter,
+                                         szPkgPathFilter, szPkgcachePathname);
                   if (iErr == ERROR_PKGCACHE_NO_EOH)
                   {
                      p = getenv(ENVHTTPTIMEOUT);
@@ -979,6 +1166,9 @@ main(int argc, char** argv)
    
    switch (iErr)
    {         
+      case 0:
+         break;
+         
       case ERROR_PKGCACHE_ACCESS:
          printf("ERROR: The specified path can't be accessed!\n\n");
          break;
@@ -1006,6 +1196,10 @@ main(int argc, char** argv)
          
       case ERROR_PKGCACHE_REPO:
          printf("ERROR: The repository URL is missing from the package list!\n\n");
+         break;
+
+      default:
+         printf("\nERROR # %d, Abnormal Exit!\n\n", iErr);
          break;
    }
    if (iErr == ERROR_PKGCACHE_CMD || iCommand == PKGCACHE_HELP)

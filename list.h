@@ -3,9 +3,9 @@
  * 
  * Author:  fossette
  * 
- * Date:    2019/01/15
+ * Date:    2019/02/04
  *
- * Version: 1.0
+ * Version: 1.1
  * 
  * Descr:   Package list object header file. Tested under FreeBSD 11.2.
  *
@@ -36,7 +36,9 @@
 
 int  ListAdd(char *szPkgName);
 int  ListGetFirst(     char *szPkgName);
+void ListGetNavFilter(     char *pNavFilter);
 int  ListGetNext(     char *szPkgName);
+void ListGetPathFilter(     char *pPathFilter);
 void ListGetRepoUrl(     char *pRepoUrl);
 int  ListGetStatExisting(void);
 int  ListGetStatNew(void);

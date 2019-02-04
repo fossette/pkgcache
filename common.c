@@ -3,9 +3,9 @@
  * 
  * Author:  fossette
  * 
- * Date:    2019/01/15
+ * Date:    2019/02/04
  *
- * Version: 1.0
+ * Version: 1.1
  * 
  * Descr:   Common functions. Tested under FreeBSD 11.2.
  *
@@ -130,5 +130,40 @@ StrnCopy(char *dst, const char *src, const int l)
    }
    else
       *dst = 0;
+}
+
+
+/*
+ *  StrReplace
+ */
+
+void
+StrReplace(char *dst, const char *before, const char after)
+{
+   int iRead = 0,
+       iWrite = 0,
+       j;
+
+
+   while (dst[iRead])
+   {
+      j = 0;
+      while (before[j] && dst[iRead + j] == before[j])
+         j++;
+      if (before[j])
+      {
+         dst[iWrite] = dst[iRead];
+         iRead++;
+         iWrite++;
+      }
+      else
+      {
+         dst[iWrite] = after;
+         iWrite++;
+         iRead += j;
+      }
+   }
+
+   dst[iWrite] = 0;
 }
 
