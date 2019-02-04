@@ -57,6 +57,7 @@ There are several branches based on the moment in time for you to choose from.  
 
 ## Version history
 1.0 - 2019/01/20 - Initial release
+
 1.1 - 2019/02/04 - Bug fixes, plus a filter feature for the FreeBSD Repository selection
 
 ## Compatibility
